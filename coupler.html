@@ -399,7 +399,11 @@ call update_land_model_slow(Atmos_land_boundary,Land)
 <pre>		      
 Conservative transfer of water and snow discharge from the land model to sea ice (ocean skin).
 E.g., 
+       !xmap_runoff should have been created in an initialization call
+       call setup_xmap(xmap_runoff, (/ 'LND', 'OCN' /), (/ Land%Domain, Ice%Domain /),"INPUT/grid_spec.nc")
+       !LND puts
        call put_to_xgrid   ( Land%discharge, 'LND', ex_runoff,  xmap_runoff)
+       !ICE gets
        call get_from_xgrid (ice_buf,         'OCN', ex_runoff,  xmap_runoff)
        Land_Ice_Boundary%runoff = ice_buf(:,:,1);
 </pre>
@@ -416,10 +420,11 @@ E.g.,
             </div>
             <div id="collapse-1-5" class="collapse"  aria-labelledby="heading-1-5">
               <div class="card-body">
-call unpack_land_ice_boundary(Ice, Land_ice_boundary)</p>		      
-call exchange_fast_to_slow_ice(Ice)</p>
-call update_ice_model_slow(Ice)</p>
-
+<pre>		      
+   call unpack_land_ice_boundary(Ice, Land_ice_boundary) !Ice%* = Land_ice_boundary%*		      
+   call exchange_fast_to_slow_ice(Ice) 
+   call update_ice_model_slow(Ice)  !sea-ice dynamics 
+</pre>
               </div>
             </div>
           </div>
@@ -441,8 +446,7 @@ call update_ice_model_slow(Ice)</p>
             <div id="collapse-1-6" class="collapse"  aria-labelledby="heading-1-6">
               <div class="card-body">
 <pre>		      
-call flux_ice_to_ocean_finish(Time_flux_ice_to_ocean, Ice_ocean_boundary)
-  !!Optionally override the fluxes passed down from ATM
+call flux_ice_to_ocean_finish(Time_flux_ice_to_ocean, Ice_ocean_boundary) !NO exchange, just data_overrides
   !!E.g.,  call data_override('OCN', 'u_flux',    Ice_Ocean_Boundary%u_flux   , Time )
 
 call update_ocean_model( Ice_ocean_boundary, Ocean_state,  Ocean, Time_ocean, Time_step_cpld )
