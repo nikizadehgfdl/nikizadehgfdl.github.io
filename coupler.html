@@ -63,7 +63,7 @@ call fms_init
             <div class="card-header" id="heading-1-1">
               <h5 class="mb-0">
                 <a class="collapsed" role="button" data-toggle="collapse" href="#collapse-1-1" aria-expanded="false" aria-controls="collapse-1-1">
-Exchange boundary fluxes from ocean to ice and from ice to ocean
+Exchange boundary fluxes between OCN and ICE
                </a>
               </h5>
             </div>
@@ -94,12 +94,14 @@ ToDo: Document how to add a "coupler flux". </p>
             <div class="card-header" id="heading-1-2">
               <h5 class="mb-0">
                 <a class="collapsed" role="button" data-toggle="collapse" href="#collapse-1-2" aria-expanded="false" aria-controls="collapse-1-2">
-if (Atm%pe):
+ || if (ATM%pe): Update ATM,ICE,LND components
                 </a>
               </h5>
             </div>
             <div id="collapse-1-2" class="collapse"  aria-labelledby="heading-1-2">
               <div class="card-body">
+                  <div id="accordion-1-2">
+<!--			  
 		      <pre>
    call mpp_set_current_pelist(Atm%pelist)
    call generate_sfc_xgrid( Land, Ice ) ! regenerate exchange grid eliminating side 2 tiles with 0 frac area.</p>
@@ -107,7 +109,7 @@ if (Atm%pe):
               </div>
             </div>
           </div>
-
+-->
           <div class="card">
             <div class="card-header" id="heading-1-3">
               <h5 class="mb-0">
@@ -137,15 +139,27 @@ call atmos_tracer_driver_gather_data(Atm%fields, Atm%tr_bot)
                       <div class="card-header" id="heading-1-3-2">
                         <h5 class="mb-0">
                           <a class="collapsed" role="button" data-toggle="collapse" href="#collapse-1-3-2" aria-expanded="false" aria-controls="collapse-1-3-2">
-call sfc_boundary_layer( REAL(dt_atmos), Time_atmos, Atm, Land, Ice, Land_ice_atmos_boundary )
+call sfc_boundary_layer(dt_atmos, Time_atmos, Atm, Land, Ice, Land_ice_atmos_boundary )
                           </a>
                         </h5>
                       </div>
                       <div id="collapse-1-3-2" class="collapse"  aria-labelledby="heading-1-3-2">
                         <div class="card-body">
-call sfc_boundary_layer( REAL(dt_atmos), Time_atmos, Atm, Land, Ice, Land_ice_atmos_boundary )
-     
-     
+<pre>				
+Computes explicit fluxes as well as their derivatives that will be used to compute implicit flux corrections.
+Heavy use of flux exchange.
+E.g., suppose we have the temperature at the skin of OCN (Ice%t_surf ) and the LND surface (Land%t_surf)
+we want to calculate the 4th power of surface temperature and make it known to the ATM component.
+
+   allocte(ex_t_surf(n_xgrid_sfc))  !prepare a 1d array on the exchange grid
+   call put_to_xgrid (Ice%t_surf,  'OCN', ex_t_surf, xmap_sfc) !put OCN temp on the exgrid
+   call put_to_xgrid (Land%t_surf, 'LND', ex_t_surf, xmap_sfc) !put LND temp on the exgrid
+   do i = is, ie ; ex_t_surf4(i) = ex_t_surf(i) ** 4 ; enddo   !do the calculation on exgrid
+   call get_from_xgrid (Land_Ice_Atmos_Boundary%t, 'ATM', ex_t_surf4,  xmap_sfc, complete=.false.) !get t4 on ATM grid
+
+
+
+</pre>     
                         </div>
                       </div>
                     </div>
@@ -160,7 +174,7 @@ call update_atmos_model_dynamics( Atm )
                       </div>
                       <div id="collapse-1-3-3" class="collapse"  aria-labelledby="heading-1-3-3">
                         <div class="card-body">
-call update_atmos_model_dynamics( Atm )
+ATM dynamics update
                         </div>
                       </div>
                     </div>
@@ -175,7 +189,7 @@ call update_atmos_model_radiation( Land_ice_atmos_boundary, Atm )
                       </div>
                       <div id="collapse-1-3-4" class="collapse"  aria-labelledby="heading-1-3-4">
                         <div class="card-body">
-call update_atmos_model_radiation( Land_ice_atmos_boundary, Atm ) Serial
+ATM radiation update
                         </div>
                       </div>
                     </div>
@@ -189,9 +203,12 @@ call update_atmos_model_down( Land_ice_atmos_boundary, Atm )</a>
                       </div>
                       <div id="collapse-1-3-5" class="collapse"  aria-labelledby="heading-1-3-5">
                         <div class="card-body">
+<pre>				
+ATM physics update, downward pass				
 call update_atmos_model_down( Land_ice_atmos_boundary, Atm )
      call physics_driver_down(arrays not types)
           call atmos_tracer_driver
+</pre>	  
                         </div>
                       </div>
                     </div>
@@ -208,10 +225,20 @@ call update_atmos_model_down( Land_ice_atmos_boundary, Atm )
                       </div>
                       <div id="collapse-1-3-6" class="collapse"  aria-labelledby="heading-1-3-6">
                         <div class="card-body">
-call flux_down_from_atmos( Time_atmos, Atm, Land, Ice, &
-                                     Land_ice_atmos_boundary, &
-                                     Atmos_land_boundary, &
-                                     Atmos_ice_boundary )
+<pre>
+This is basically passing the ATM fluxes downwards by "put"ting them on the exgrid side 1 for the LND or ICE to "get" them. E.g.,
+    !put
+    call put_to_xgrid (Atm%flux_sw_dir, 'ATM', ex_flux_sw_dir, xmap_sfc, complete=.false.)
+    call put_to_xgrid (Atm%flux_lw, 'ATM', ex_flux_lwd, xmap_sfc, remap_method=remap_method, complete=.true.)
+    !compute
+    do i = is, ie; ex_flux_sw(i) = ex_flux_sw(i) * ex_albedo_fix(i) ; enddo
+    do i = is, ie; ex_flux_lw(i) = ex_flux_lwd(i) - ex_flux_lw(i) ; enddo
+    !get
+    call get_from_xgrid_ug (Land_boundary%sw_flux, 'LND', ex_flux_sw,   xmap_sfc)
+    call get_from_xgrid_ug (Land_boundary%lw_flux, 'LND', ex_flux_lw,   xmap_sfc)
+    call get_from_xgrid (Ice_boundary%lw_flux,  'OCN', ex_flux_lw,   xmap_sfc) 
+
+</pre>
                         </div>
                       </div>
                     </div>
@@ -225,7 +252,7 @@ call flux_down_from_atmos( Time_atmos, Atm, Land, Ice, &
                       </div>
                       <div id="collapse-1-3-7" class="collapse"  aria-labelledby="heading-1-3-7">
                         <div class="card-body">
-call update_land_model_fast( Atmos_land_boundary, Land )
+Update LND, fast processes
                         </div>
                       </div>
                     </div>
@@ -239,7 +266,7 @@ call update_ice_model_fast( Atmos_ice_boundary, Ice )</a>
                       </div>
                       <div id="collapse-1-3-8" class="collapse"  aria-labelledby="heading-1-3-8">
                         <div class="card-body">
-call update_ice_model_fast( Atmos_ice_boundary, Ice )
+Update ICE, fast processes
                         </div>
                       </div>
                     </div>
@@ -254,8 +281,17 @@ call flux_up_to_atmos( Time_atmos, Land, Ice, Land_ice_atmos_boundary, &
                       </div>
                       <div id="collapse-1-3-9" class="collapse"  aria-labelledby="heading-1-3-9">
                         <div class="card-body">
-call flux_up_to_atmos( Time_atmos, Land, Ice, Land_ice_atmos_boundary, &
-                                 Atmos_land_boundary, Atmos_ice_boundary )
+<pre>
+Corrects the fluxes for consistency with the new surface temperatures in land and ice models. E.g., 
+
+    call data_override_ug ( 'LND', 't_surf', Land%t_surf, Time)
+    call put_to_xgrid (Land%t_ca,   'LND', ex_t_ca_new,   xmap_sfc)
+    !NOTE: ex_t_ca,ex_flux_t,ex_dhdt_surf were calculated in sfc_boundary_layer() at the begining of ATM loop !!!
+    ex_dt_t_ca(i)  = ex_t_ca_new(i) - ex_t_ca(i)                            
+    ex_flux_t(i)   = ex_flux_t(i)   + ex_dt_t_ca(i)   * ex_dhdt_surf(i)    
+    call get_from_xgrid (Land_Ice_Atmos_Boundary%shflx,'ATM', ex_flux_t , xmap_sfc)
+
+</pre>
                         </div>
                       </div>
                     </div>
@@ -269,7 +305,7 @@ call flux_up_to_atmos( Time_atmos, Land, Ice, Land_ice_atmos_boundary, &
                       </div>
                       <div id="collapse-1-3-10" class="collapse"  aria-labelledby="heading-1-3-10">
                         <div class="card-body">
-call update_atmos_model_up( Land_ice_atmos_boundary, Atm)
+ATM physics update, upward pass				
                         </div>
                       </div>
                     </div>
@@ -283,9 +319,22 @@ call update_atmos_model_up( Land_ice_atmos_boundary, Atm)
                       </div>
                       <div id="collapse-1-3-11" class="collapse"  aria-labelledby="heading-1-3-11">
                         <div class="card-body">
-call flux_atmos_to_ocean(Time_atmos, Atm, Atmos_ice_boundary, Ice)
+<pre>
+ATM puts the fluxes to exgrid for ICE to get
+ICE accumulates the fluxes over ATM fast updates 
+E.g.,
+     !ATM calculations
      call atmos_tracer_driver_gather_data_down(Atm%fields, Atm%tr_bot)
-                        </div>
+     !ATM puts to exgrid
+     call put_to_xgrid (Atm%fields%bc(n)%field(m)%values, 'ATM',            ex_gas_fields_atm%bc(n)%field(m)%values, xmap_sfc, remap_method=remap_method)
+     !exgrid calculations
+     call atmos_ocean_dep_fluxes_calc(ex_gas_fields_atm, ex_gas_fields_ice, ex_gas_fluxes, ex_seawater)
+     !ICE gets
+     call get_from_xgrid (Ice_boundary%fluxes%bc(n)%field(m)%values, 'OCN', ex_gas_fluxes%bc(n)%field(m)%values, xmap_sfc)
+     !ICE accumulates
+     call update_ice_atm_deposition_flux( Ice_boundary, Ice )
+</pre>
+			</div>
                       </div>
                     </div>
 
@@ -345,7 +394,13 @@ call update_land_model_slow(Atmos_land_boundary,Land)
             </div>
             <div id="collapse-1-4" class="collapse"  aria-labelledby="heading-1-4">
               <div class="card-body">
-call flux_land_to_ice( Time, Land, Ice, Land_ice_boundary )
+<pre>		      
+Conservative transfer of water and snow discharge from the land model to sea ice (ocean skin).
+E.g., 
+       call put_to_xgrid   ( Land%discharge, 'LND', ex_runoff,  xmap_runoff)
+       call get_from_xgrid (ice_buf,         'OCN', ex_runoff,  xmap_runoff)
+       Land_Ice_Boundary%runoff = ice_buf(:,:,1);
+</pre>
               </div>
             </div>
           </div>
@@ -359,8 +414,7 @@ call flux_land_to_ice( Time, Land, Ice, Land_ice_boundary )
             </div>
             <div id="collapse-1-5" class="collapse"  aria-labelledby="heading-1-5">
               <div class="card-body">
-call ice_model_fast_cleanup(Ice)</p>
-call unpack_land_ice_boundary(Ice, Land_ice_boundary)</p>
+call unpack_land_ice_boundary(Ice, Land_ice_boundary)</p>		      
 call exchange_fast_to_slow_ice(Ice)</p>
 call update_ice_model_slow(Ice)</p>
 
@@ -368,34 +422,42 @@ call update_ice_model_slow(Ice)</p>
             </div>
           </div>
 
+
+              </div>
+            </div>
+          </div>
+
+
           <div class="card">
             <div class="card-header" id="heading-1-6">
               <h5 class="mb-0">
-                <a class="collapsed" role="button" data-toggle="collapse" href="#collapse-1-6" aria-expanded="false" aria-controls="collapse-1-6">call update_ocean_model( Ice_ocean_boundary, Ocean_state,  Ocean, Time_ocean, Time_step_cpld )
+                <a class="collapsed" role="button" data-toggle="collapse" href="#collapse-1-6" aria-expanded="false" aria-controls="collapse-1-6">
+ || if(OCN%pe): Update OCN component			
                 </a>
               </h5>
             </div>
-            <div id="collapse-1-5" class="collapse"  aria-labelledby="heading-1-5">
+            <div id="collapse-1-6" class="collapse"  aria-labelledby="heading-1-6">
               <div class="card-body">
-call flux_ice_to_ocean_finish(Time_flux_ice_to_ocean, Ice_ocean_boundary)</p>
-  !> flux_ice_to_ocean_finish carrries out a final set of tasks that should only occur on</p>
-  !! the ocean processors, including data override and perhaps saving diagnostics.</p>
-  E.g.,  call data_override('OCN', 'u_flux',    Ice_Ocean_Boundary%u_flux   , Time )</p>
-  Extra fluxes  call coupler_type_data_override('OCN', Ice_Ocean_Boundary%fluxes, Time )</p>
-if (combined_ice_and_ocean) call update_slow_ice_and_ocean</p>
-call update_ocean_model( Ice_ocean_boundary, Ocean_state,  Ocean, Time_ocean, Time_step_cpld )</p>
+<pre>		      
+call flux_ice_to_ocean_finish(Time_flux_ice_to_ocean, Ice_ocean_boundary)
+  !!Optionally override the fluxes passed down from ATM
+  !!E.g.,  call data_override('OCN', 'u_flux',    Ice_Ocean_Boundary%u_flux   , Time )
+
+call update_ocean_model( Ice_ocean_boundary, Ocean_state,  Ocean, Time_ocean, Time_step_cpld )
+</pre>
               </div>
             </div>
           </div>
 
           <div class="card">
-            <div class="card-header" id="heading-1-6">
+            <div class="card-header" id="heading-1-7">
               <h5 class="mb-0">
-                <a class="collapsed" role="button" data-toggle="collapse" href="#collapse-1-6" aria-expanded="false" aria-controls="collapse-1-6">write out intermediate restart file when needed
+                <a class="collapsed" role="button" data-toggle="collapse" href="#collapse-1-7" aria-expanded="false" aria-controls="collapse-1-7">
+Post-updates 		
                 </a>
               </h5>
             </div>
-            <div id="collapse-1-6" class="collapse"  aria-labelledby="heading-1-6">
+            <div id="collapse-1-7" class="collapse"  aria-labelledby="heading-1-7">
               <div class="card-body">
 call atmos_model_restart(Atm, timestamp)</p>
 call land_model_restart(timestamp)</p>
